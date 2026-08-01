@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma';
 import { createRewardWorker, RewardJobData, closeQueues } from '../../lib/queue';
 import { logger } from '../../lib/logger';
 import { emitToUser } from '../../sockets/emitter';
+import { notifyRewardResult } from '../notifications/notification.service';
 import { config } from '../../config/env';
 import { dispatchPendingRewards } from './reward.service';
 
@@ -76,12 +77,14 @@ async function processReward(job: RewardJobData): Promise<void> {
       amount: reward.amount,
       currency: reward.currency,
     });
+    await notifyRewardResult(reward.userId, rewardId, true, reward.amount, reward.currency);
     logger.info({ rewardId, userId: reward.userId }, 'reward processed');
   } catch (err) {
     await prisma.reward.update({
       where: { id: rewardId },
       data: { status: 'FAILED', lastError: err instanceof Error ? err.message : 'unknown error' },
     });
+    await notifyRewardResult(reward.userId, rewardId, false, reward.amount, reward.currency);
     logger.error({ rewardId, err }, 'reward processing failed');
     throw err;
   }
