@@ -11,6 +11,7 @@ import { userRouter } from './modules/users/user.routes';
 import { tournamentRouter } from './modules/tournaments/tournament.routes';
 import { matchRouter } from './modules/tournaments/matchmaking.routes';
 import { rewardRouter } from './modules/rewards/reward.routes';
+import { leaderboardRouter } from './modules/leaderboard/leaderboard.routes';
 import { attachRequestId } from './middlewares/requestId';
 
 export function createApp(): Express {
@@ -42,6 +43,7 @@ export function createApp(): Express {
   app.use('/api/tournaments', tournamentRouter);
   app.use('/api/matches', matchRouter);
   app.use('/api/rewards', rewardRouter);
+  app.use('/api/leaderboard', leaderboardRouter);
 
   app.use((_req: Request, res: Response) => {
     res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } });
