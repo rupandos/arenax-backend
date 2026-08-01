@@ -128,6 +128,7 @@ model Tournament {
   winner User? @relation("TournamentWinner", fields: [winnerId], references: [id])
 
   @@index([status, startTime])
+  @@index([status, endTime])
   @@index([startTime])
   @@index([endTime])
 }
@@ -166,6 +167,7 @@ model Match {
 
   @@index([tournamentId, status])
   @@index([status])
+  @@index([startedAt])
 }
 
 model Reward {
@@ -187,6 +189,7 @@ model Reward {
 
   @@index([userId, status])
   @@index([status, createdAt])
+  @@index([type, status])
   @@index([tournamentId])
 }
 
@@ -247,6 +250,7 @@ model Transaction {
   @@index([buyerId, createdAt])
   @@index([sellerId, createdAt])
   @@index([assetId])
+  @@index([status, createdAt])
 }
 
 model AssetTransfer {
@@ -290,5 +294,6 @@ model LeaderboardEntry {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([periodKey, userId])
+  @@index([periodKey, points])
   @@index([periodKey, rank])
 }
