@@ -6,6 +6,7 @@ import { checkDatabaseConnection } from './lib/prisma';
 import { checkRedisConnection, closeRedis } from './lib/redis';
 import { initSchedulers, stopSchedulers } from './jobs';
 import { startRewardWorker, stopRewardWorker } from './modules/rewards/reward.worker';
+import { initSocketServer } from './sockets';
 
 async function bootstrap(): Promise<void> {
   await checkDatabaseConnection();
@@ -13,6 +14,8 @@ async function bootstrap(): Promise<void> {
 
   const app = createApp();
   const httpServer = createServer(app);
+
+  initSocketServer(httpServer);
 
   await startRewardWorker();
   initSchedulers();
