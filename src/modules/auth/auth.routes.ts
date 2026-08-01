@@ -1,9 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { asyncHandler, ok, validateBody } from '../../utils/http';
+import { rateLimit } from '../../middlewares/rateLimit';
 import * as authService from './auth.service';
 
 export const authRouter = Router();
+
+authRouter.use(rateLimit({ keyPrefix: 'auth', maxRequests: 30 }));
 
 const challengeSchema = z.object({
   walletAddress: z.string().min(1).max(64),
