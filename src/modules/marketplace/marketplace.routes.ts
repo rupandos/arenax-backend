@@ -19,6 +19,10 @@ const listQuerySchema = z.object({
 
 const idParamsSchema = z.object({ id: z.string().min(1) });
 
+const purchaseSchema = z.object({
+  idempotencyKey: z.string().min(8).max(64),
+});
+
 marketplaceRouter.get(
   '/listings',
   validateQuery(listQuerySchema),
@@ -46,5 +50,20 @@ marketplaceRouter.post(
   asyncHandler(async (req, res) => {
     await marketplaceService.cancelListing(req.userId, req.params.id);
     ok(res, { success: true });
+  }),
+);
+
+marketplaceRouter.post(
+  '/listings/:id/purchase',
+  requireAuth,
+  validateParams(idParamsSchema),
+  validateBody(purchaseSchema),
+  asyncHandler(async (req, res) => {
+    const result = await marketplaceService.purchaseListing(
+      req.userId,
+      req.params.id,
+      req.body.idempotencyKey,
+    );
+    ok(res, result);
   }),
 );

@@ -236,6 +236,7 @@ model Transaction {
   currency  String            @default("GEM")
   status    TransactionStatus @default(PENDING)
   txHash    String?
+  idempotencyKey String?      @unique
   createdAt DateTime          @default(now())
 
   listing Listing @relation(fields: [listingId], references: [id])

@@ -75,4 +75,120 @@ export function priceInCurrency(listing: { price: number; currency: string }): s
   return `${listing.price} ${listing.currency}`;
 }
 
+export async function purchaseListing(buyerId: string, listingId: string, idempotencyKey: string) {
+  const existing = await prisma.transaction.findFirst({ where: { idempotencyKey } });
+  if (existing) {
+    logger.info({ idempotencyKey, transactionId: existing.id }, 'duplicate purchase attempt, returning prior result');
+    return { transaction: existing, duplicate: true };
+  }
+
+  const listing = await prisma.listing.findUnique({
+    where: { id: listingId },
+    include: { asset: true, seller: true },
+  });
+  if (!listing) {
+    throw new NotFoundError('LISTING_NOT_FOUND', 'Listing does not exist');
+  }
+  if (listing.status !== 'ACTIVE') {
+    throw new ConflictError('LISTING_NOT_ACTIVE', 'Listing is no longer active');
+  }
+  if (listing.sellerId === buyerId) {
+    throw new AppError(400, 'SELF_PURCHASE', 'You cannot purchase your own listing');
+  }
+
+  const transaction = await prisma.$transaction(async (tx) => {
+    const claimed = await tx.listing.updateMany({
+      where: { id: listingId, status: 'ACTIVE' },
+      data: { status: 'SOLD', closedAt: new Date() },
+    });
+    if (claimed.count === 0) {
+      throw new ConflictError('LISTING_NOT_ACTIVE', 'Listing was already purchased');
+    }
+
+    const txRecord = await tx.transaction.create({
+      data: {
+        listingId,
+        buyerId,
+        sellerId: listing.sellerId,
+        assetId: listing.assetId,
+        amount: listing.price,
+        currency: listing.currency,
+        status: 'CONFIRMED',
+        idempotencyKey,
+      },
+    });
+
+    await tx.asset.update({
+      where: { id: listing.assetId },
+      data: { ownerId: buyerId },
+    });
+
+    await tx.assetTransfer.create({
+      data: {
+        assetId: listing.assetId,
+        fromUserId: listing.sellerId,
+        toUserId: buyerId,
+        reason: 'MARKETPLACE_PURCHASE',
+      },
+    });
+
+    return txRecord;
+  });
+
+  emitToUser(buyerId, 'marketplace:purchased', {
+    transactionId: transaction.id,
+    assetId: listing.assetId,
+    assetName: listing.asset.name,
+    price: listing.price,
+    currency: listing.currency,
+  });
+  emitToUser(listing.sellerId, 'marketplace:sold', {
+    transactionId: transaction.id,
+    assetId: listing.assetId,
+    price: listing.price,
+    currency: listing.currency,
+  });
+
+  await prisma.notification.create({
+    data: {
+      userId: listing.sellerId,
+      type: 'MARKETPLACE_SOLD',
+      title: 'Asset sold',
+      body: `Your ${listing.asset.name} was sold for ${listing.price} ${listing.currency}`,
+      data: { transactionId: transaction.id, assetId: listing.assetId },
+    },
+  });
+
+  logger.info({ transactionId: transaction.id, listingId, buyerId }, 'marketplace purchase completed');
+  return { transaction, duplicate: false };
+}
+
+export async function getUserInventory(userId: string, page: number, pageSize: number) {
+  const [items, total] = await Promise.all([
+    prisma.asset.findMany({
+      where: { ownerId: userId },
+      orderBy: { mintedAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: {
+        listings: { where: { status: 'ACTIVE' }, select: { id: true, price: true, status: true } },
+      },
+    }),
+    prisma.asset.count({ where: { ownerId: userId } }),
+  ]);
+
+  return {
+    items: items.map((asset) => ({
+      id: asset.id,
+      tokenId: asset.tokenId,
+      name: asset.name,
+      rarity: asset.rarity,
+      mintedAt: asset.mintedAt,
+      listed: asset.listings.length > 0,
+      activeListing: asset.listings[0] ?? null,
+    })),
+    total,
+  };
+}
+
 export { emitToUser };
