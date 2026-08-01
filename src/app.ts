@@ -13,6 +13,7 @@ import { matchRouter } from './modules/tournaments/matchmaking.routes';
 import { rewardRouter } from './modules/rewards/reward.routes';
 import { leaderboardRouter } from './modules/leaderboard/leaderboard.routes';
 import { marketplaceRouter } from './modules/marketplace/marketplace.routes';
+import { notificationRouter } from './modules/notifications/notification.routes';
 import { attachRequestId } from './middlewares/requestId';
 
 export function createApp(): Express {
@@ -46,6 +47,7 @@ export function createApp(): Express {
   app.use('/api/rewards', rewardRouter);
   app.use('/api/leaderboard', leaderboardRouter);
   app.use('/api/marketplace', marketplaceRouter);
+  app.use('/api/notifications', notificationRouter);
 
   app.use((_req: Request, res: Response) => {
     res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } });

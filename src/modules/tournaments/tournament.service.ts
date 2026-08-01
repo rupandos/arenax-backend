@@ -3,6 +3,10 @@ import { prisma } from '../../lib/prisma';
 import { NotFoundError, ConflictError, ForbiddenError, AppError } from '../../utils/errors';
 import { logger } from '../../lib/logger';
 import { emitToUser } from '../../sockets/emitter';
+import {
+  notifyTournamentEnd,
+  notifyTournamentStart,
+} from '../notifications/notification.service';
 
 export interface CreateTournamentInput {
   name: string;
@@ -148,15 +152,7 @@ export async function startTournament(tournamentId: string) {
       name: tournament.name,
       startTime: now,
     });
-    await prisma.notification.create({
-      data: {
-        userId: player.userId,
-        type: 'TOURNAMENT_STARTED',
-        title: 'Tournament started',
-        body: `"${tournament.name}" is now live. Good luck!`,
-        data: { tournamentId },
-      },
-    });
+    await notifyTournamentStart(player.userId, tournamentId, tournament.name);
   }
 
   logger.info({ tournamentId }, 'tournament started');
@@ -223,15 +219,7 @@ export async function completeTournament(tournamentId: string) {
       rank: player.rank,
       winnerId: completed.winnerId,
     });
-    await prisma.notification.create({
-      data: {
-        userId: player.userId,
-        type: 'TOURNAMENT_ENDED',
-        title: 'Tournament finished',
-        body: `"${tournament.name}" has concluded. You finished #${player.rank}.`,
-        data: { tournamentId, rank: player.rank, winnerId: completed.winnerId },
-      },
-    });
+    await notifyTournamentEnd(player.userId, tournamentId, tournament.name, player.rank!, completed.winnerId);
   }
 
   logger.info({ tournamentId, winners: winners.length }, 'tournament completed');
