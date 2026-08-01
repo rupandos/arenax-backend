@@ -27,6 +27,13 @@ function topCacheKey(periodKey: string, n: number): string {
 
 const TOP_CACHE_TTL_SECONDS = 60;
 
+async function invalidateTopCache(periodKey: string): Promise<void> {
+  const keys = await redis.keys(`leaderboard:cache:${periodKey}:top*`);
+  if (keys.length > 0) {
+    await redis.del(...keys);
+  }
+}
+
 export interface LeaderboardEntry {
   userId: string;
   username: string;
@@ -35,8 +42,10 @@ export interface LeaderboardEntry {
 }
 
 export async function addPoints(userId: string, points: number, period: LeaderboardPeriod = 'daily'): Promise<void> {
-  const key = leaderboardKey(currentPeriodKey(period));
+  const periodKey = currentPeriodKey(period);
+  const key = leaderboardKey(periodKey);
   await redis.zincrby(key, points, userId);
+  await invalidateTopCache(periodKey);
 }
 
 export async function getTop(n: number, period: LeaderboardPeriod = 'daily'): Promise<LeaderboardEntry[]> {
