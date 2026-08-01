@@ -84,3 +84,44 @@ export async function cancelTournament(tournamentId: string, actorRole: string) 
   }
   return { success: true };
 }
+
+export async function joinTournament(tournamentId: string, userId: string) {
+  const tournament = await prisma.tournament.findUnique({
+    where: { id: tournamentId },
+    include: { _count: { select: { players: true } } },
+  });
+  if (!tournament) {
+    throw new NotFoundError('TOURNAMENT_NOT_FOUND', 'Tournament does not exist');
+  }
+  if (tournament.status !== 'OPEN') {
+    throw new ConflictError('TOURNAMENT_NOT_OPEN', 'Tournament is not accepting registrations');
+  }
+  if (tournament._count.players >= tournament.maxPlayers) {
+    throw new ConflictError('TOURNAMENT_FULL', 'Tournament has reached its player limit');
+  }
+
+  const player = await prisma.tournamentPlayer.create({
+    data: { tournamentId, userId },
+  });
+
+  return player;
+}
+
+export async function leaveTournament(tournamentId: string, userId: string) {
+  const tournament = await prisma.tournament.findUnique({ where: { id: tournamentId } });
+  if (!tournament) {
+    throw new NotFoundError('TOURNAMENT_NOT_FOUND', 'Tournament does not exist');
+  }
+  if (tournament.status !== 'OPEN') {
+    throw new ConflictError('TOURNAMENT_STARTED', 'Cannot leave after the tournament has started');
+  }
+
+  const removed = await prisma.tournamentPlayer.deleteMany({
+    where: { tournamentId, userId },
+  });
+  if (removed.count === 0) {
+    throw new NotFoundError('NOT_REGISTERED', 'You are not registered for this tournament');
+  }
+  return { success: true };
+}
+

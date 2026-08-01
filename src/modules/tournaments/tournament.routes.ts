@@ -76,3 +76,23 @@ tournamentRouter.post(
     ok(res, result);
   }),
 );
+
+tournamentRouter.post(
+  '/:id/join',
+  requireAuth,
+  validateParams(tournamentIdParamsSchema),
+  asyncHandler(async (req, res) => {
+    const player = await tournamentService.joinTournament(req.params.id, req.userId);
+    ok(res, player, 201);
+  }),
+);
+
+tournamentRouter.post(
+  '/:id/leave',
+  requireAuth,
+  validateParams(tournamentIdParamsSchema),
+  asyncHandler(async (req, res) => {
+    const result = await tournamentService.leaveTournament(req.params.id, req.userId);
+    ok(res, result);
+  }),
+);
