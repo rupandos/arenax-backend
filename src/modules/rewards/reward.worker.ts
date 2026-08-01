@@ -83,10 +83,16 @@ async function processReward(job: RewardJobData): Promise<void> {
   } catch (err) {
     await prisma.reward.update({
       where: { id: rewardId },
-      data: { status: 'FAILED', lastError: err instanceof Error ? err.message : 'unknown error' },
+      data: {
+        status: 'FAILED',
+        lastError: err instanceof Error ? err.message : 'unknown error',
+        ...(job.attemptsMade + 1 >= job.opts.attempts ?? 1
+          ? { lastError: `${err instanceof Error ? err.message : 'unknown error'} (max attempts reached)` }
+          : {}),
+      },
     });
     await notifyRewardResult(reward.userId, rewardId, false, reward.amount, reward.currency);
-    logger.error({ rewardId, err }, 'reward processing failed');
+    logger.error({ rewardId, err, attempt: job.attemptsMade }, 'reward processing failed');
     throw err;
   }
 }

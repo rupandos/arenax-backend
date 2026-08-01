@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma';
 import { rewardQueue } from '../../lib/queue';
 import { NotFoundError, ConflictError, ForbiddenError, AppError } from '../../utils/errors';
 import { logger } from '../../lib/logger';
+import { bullmqBackoffOptions, REWARD_MAX_ATTEMPTS } from '../../utils/backoff';
 
 export interface EnqueueRewardInput {
   userId: string;
@@ -37,8 +38,8 @@ export async function enqueueReward(input: EnqueueRewardInput) {
       jobId: reward.id,
       removeOnComplete: 1000,
       removeOnFail: 5000,
-      attempts: 3,
-      backoff: { type: 'fixed', delay: 5_000 },
+      attempts: REWARD_MAX_ATTEMPTS,
+      backoff: bullmqBackoffOptions(),
     },
   );
 
@@ -96,7 +97,11 @@ export async function retryReward(rewardId: string, userId?: string) {
       amount: reward.amount,
       currency: reward.currency,
     },
-    { jobId: `retry-${reward.id}-${Date.now()}`, attempts: 3, backoff: { type: 'fixed', delay: 5_000 } },
+    {
+      jobId: `retry-${reward.id}-${Date.now()}`,
+      attempts: REWARD_MAX_ATTEMPTS,
+      backoff: bullmqBackoffOptions(),
+    },
   );
 
   logger.info({ rewardId }, 'reward requeued for retry');
@@ -167,7 +172,11 @@ export async function retryAllFailedRewards(actorRole: string, limit = 100): Pro
         amount: reward.amount,
         currency: reward.currency,
       },
-      { jobId: `retry-${reward.id}-${Date.now()}-${requeued}`, attempts: 3, backoff: { type: 'fixed', delay: 5_000 } },
+      {
+        jobId: `retry-${reward.id}-${Date.now()}-${requeued}`,
+        attempts: REWARD_MAX_ATTEMPTS,
+        backoff: bullmqBackoffOptions(),
+      },
     );
     requeued += 1;
   }
@@ -197,7 +206,7 @@ export async function dispatchPendingRewards(): Promise<number> {
         amount: reward.amount,
         currency: reward.currency,
       },
-      { jobId: reward.id, attempts: 3, backoff: { type: 'fixed', delay: 5_000 } },
+      { jobId: reward.id, attempts: REWARD_MAX_ATTEMPTS, backoff: bullmqBackoffOptions() },
     );
     dispatched += 1;
   }
