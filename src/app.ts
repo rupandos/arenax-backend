@@ -9,6 +9,7 @@ import { healthRouter } from './modules/health/health.routes';
 import { authRouter } from './modules/auth/auth.routes';
 import { userRouter } from './modules/users/user.routes';
 import { tournamentRouter } from './modules/tournaments/tournament.routes';
+import { matchRouter } from './modules/tournaments/matchmaking.routes';
 import { attachRequestId } from './middlewares/requestId';
 
 export function createApp(): Express {
@@ -38,6 +39,7 @@ export function createApp(): Express {
   app.use('/api/auth', authRouter);
   app.use('/api/users', userRouter);
   app.use('/api/tournaments', tournamentRouter);
+  app.use('/api/matches', matchRouter);
 
   app.use((_req: Request, res: Response) => {
     res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } });

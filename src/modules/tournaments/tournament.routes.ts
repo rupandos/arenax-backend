@@ -8,6 +8,7 @@ import {
   tournamentIdParamsSchema,
 } from './tournament.validators';
 import * as tournamentService from './tournament.service';
+import * as matchmakingService from './matchmaking.service';
 
 export const tournamentRouter = Router();
 
@@ -94,5 +95,16 @@ tournamentRouter.post(
   asyncHandler(async (req, res) => {
     const result = await tournamentService.leaveTournament(req.params.id, req.userId);
     ok(res, result);
+  }),
+);
+
+tournamentRouter.post(
+  '/:id/matchmaking/join',
+  requireAuth,
+  validateParams(tournamentIdParamsSchema),
+  asyncHandler(async (req, res) => {
+    await matchmakingService.enqueueForMatchmaking(req.params.id, req.userId);
+    await matchmakingService.processMatchmaking(req.params.id);
+    ok(res, { queued: true });
   }),
 );
