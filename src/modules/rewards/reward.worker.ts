@@ -15,6 +15,31 @@ async function claimReward(rewardId: string): Promise<void> {
   logger.debug({ rewardId }, 'reward claimed by provider');
 }
 
+async function mintNftForReward(reward: {
+  id: string;
+  userId: string;
+  amount: number;
+}): Promise<void> {
+  const tokenId = reward.id;
+  await prisma.asset.create({
+    data: {
+      tokenId,
+      ownerId: reward.userId,
+      name: `ArenaX Trophy #${reward.amount}`,
+      rarity: reward.amount >= 5 ? 'EPIC' : 'RARE',
+      metadataUrl: `arenax://reward/${reward.id}`,
+    },
+  });
+  await prisma.assetTransfer.create({
+    data: {
+      assetId: tokenId,
+      toUserId: reward.userId,
+      reason: 'NFT_REWARD_MINT',
+    },
+  });
+  logger.info({ tokenId, userId: reward.userId }, 'NFT minted for reward');
+}
+
 let worker: Worker<RewardJobData> | null = null;
 
 async function processReward(job: RewardJobData): Promise<void> {
@@ -37,6 +62,9 @@ async function processReward(job: RewardJobData): Promise<void> {
 
   try {
     await claimReward(rewardId);
+    if (reward.type === 'NFT_REWARD') {
+      await mintNftForReward(reward);
+    }
 
     await prisma.reward.update({
       where: { id: rewardId },

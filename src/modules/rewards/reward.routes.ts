@@ -41,3 +41,12 @@ rewardRouter.post(
     ok(res, reward);
   }),
 );
+
+rewardRouter.get(
+  '/:id/nft-status',
+  validateParams(idParamsSchema),
+  asyncHandler(async (req, res) => {
+    const status = await rewardService.getNftStatus(req.params.id, req.userId);
+    ok(res, status);
+  }),
+);

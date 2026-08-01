@@ -107,6 +107,40 @@ export async function retryReward(rewardId: string, userId?: string) {
  * Crash recovery: re-queue any reward that was left in a non-terminal state
  * without an active BullMQ job (e.g. after a worker crash mid-processing).
  */
+export interface NftStatus {
+  rewardId: string;
+  status: 'pending' | 'minted';
+  asset?: {
+    tokenId: string;
+    name: string;
+    rarity: string;
+    mintedAt: Date;
+  };
+}
+
+export async function getNftStatus(rewardId: string, userId?: string): Promise<NftStatus> {
+  const reward = await prisma.reward.findUnique({ where: { id: rewardId } });
+  if (!reward) {
+    throw new NotFoundError('REWARD_NOT_FOUND', 'Reward does not exist');
+  }
+  if (reward.type !== 'NFT_REWARD') {
+    throw new AppError(400, 'NOT_NFT_REWARD', 'Only NFT rewards have a mint status');
+  }
+  if (userId && reward.userId !== userId) {
+    throw new ForbiddenError('NOT_OWNER', 'You do not own this reward');
+  }
+
+  const asset = await prisma.asset.findUnique({
+    where: { tokenId: reward.id },
+    select: { tokenId: true, name: true, rarity: true, mintedAt: true },
+  });
+
+  if (!asset) {
+    return { rewardId, status: 'pending' };
+  }
+  return { rewardId, status: 'minted', asset };
+}
+
 export async function dispatchPendingRewards(): Promise<number> {
   const pending = await prisma.reward.findMany({
     where: { status: { in: ['PENDING', 'PROCESSING'] } },
