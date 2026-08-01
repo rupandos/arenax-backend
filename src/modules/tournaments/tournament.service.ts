@@ -181,6 +181,20 @@ export async function completeTournament(tournamentId: string) {
   const winners = rankedPlayers.filter((player, index) => index < PRIZE_SHARE.length && player.score > 0);
 
   const completed = await prisma.$transaction(async (tx) => {
+    const unresolvedMatches = await tx.match.findMany({
+      where: { tournamentId, status: { in: ['PENDING', 'IN_PROGRESS'] } },
+    });
+    if (unresolvedMatches.length > 0) {
+      await tx.match.updateMany({
+        where: { tournamentId, status: { in: ['PENDING', 'IN_PROGRESS'] } },
+        data: { status: 'FINISHED', finishedAt: new Date() },
+      });
+      logger.warn(
+        { tournamentId, count: unresolvedMatches.length },
+        'force-finished unresolved matches during completion',
+      );
+    }
+
     for (const player of rankedPlayers) {
       await tx.tournamentPlayer.update({
         where: { id: player.id },
