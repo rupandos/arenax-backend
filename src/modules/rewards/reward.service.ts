@@ -157,12 +157,14 @@ export async function retryAllFailedRewards(actorRole: string, limit = 100): Pro
     take: limit,
   });
 
-  let requeued = 0;
-  for (const reward of failed) {
-    await prisma.reward.update({
-      where: { id: reward.id },
-      data: { status: 'PENDING', lastError: null },
-    });
+  await prisma.reward.updateMany({
+    where: { id: { in: failed.map((reward) => reward.id) } },
+    data: { status: 'PENDING', lastError: null },
+  });
+
+  const stamp = Date.now();
+  for (let index = 0; index < failed.length; index += 1) {
+    const reward = failed[index];
     await rewardQueue.add(
       'process-reward',
       {
@@ -173,14 +175,14 @@ export async function retryAllFailedRewards(actorRole: string, limit = 100): Pro
         currency: reward.currency,
       },
       {
-        jobId: `retry-${reward.id}-${Date.now()}-${requeued}`,
+        jobId: `retry-${reward.id}-${stamp}-${index}`,
         attempts: REWARD_MAX_ATTEMPTS,
         backoff: bullmqBackoffOptions(),
       },
     );
-    requeued += 1;
   }
 
+  const requeued = failed.length;
   if (requeued > 0) {
     logger.info({ requeued }, 'bulk retry triggered for failed rewards');
   }

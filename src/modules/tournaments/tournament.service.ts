@@ -3,10 +3,6 @@ import { prisma } from '../../lib/prisma';
 import { NotFoundError, ConflictError, ForbiddenError, AppError } from '../../utils/errors';
 import { logger } from '../../lib/logger';
 import { emitToUser } from '../../sockets/emitter';
-import {
-  notifyTournamentEnd,
-  notifyTournamentStart,
-} from '../notifications/notification.service';
 
 export interface CreateTournamentInput {
   name: string;
@@ -146,13 +142,22 @@ export async function startTournament(tournamentId: string) {
     data: { status: 'STARTED', startedAt: now },
   });
 
-  for (const player of await prisma.tournamentPlayer.findMany({ where: { tournamentId } })) {
+  const players = await prisma.tournamentPlayer.findMany({ where: { tournamentId } });
+  await prisma.notification.createMany({
+    data: players.map((player) => ({
+      userId: player.userId,
+      type: 'TOURNAMENT_STARTED' as const,
+      title: 'Tournament started',
+      body: `"${tournament.name}" is now live. Good luck!`,
+      data: { tournamentId },
+    })),
+  });
+  for (const player of players) {
     emitToUser(player.userId, 'tournament:started', {
       tournamentId,
       name: tournament.name,
       startTime: now,
     });
-    await notifyTournamentStart(player.userId, tournamentId, tournament.name);
   }
 
   logger.info({ tournamentId }, 'tournament started');
@@ -227,13 +232,21 @@ export async function completeTournament(tournamentId: string) {
     return updated;
   });
 
+  await prisma.notification.createMany({
+    data: rankedPlayers.map((player) => ({
+      userId: player.userId,
+      type: 'TOURNAMENT_ENDED' as const,
+      title: 'Tournament finished',
+      body: `"${tournament.name}" has concluded. You finished #${player.rank}.`,
+      data: { tournamentId, rank: player.rank, winnerId: completed.winnerId },
+    })),
+  });
   for (const player of rankedPlayers) {
     emitToUser(player.userId, 'tournament:ended', {
       tournamentId,
       rank: player.rank,
       winnerId: completed.winnerId,
     });
-    await notifyTournamentEnd(player.userId, tournamentId, tournament.name, player.rank!, completed.winnerId);
   }
 
   logger.info({ tournamentId, winners: winners.length }, 'tournament completed');
