@@ -50,3 +50,11 @@ rewardRouter.get(
     ok(res, status);
   }),
 );
+
+rewardRouter.post(
+  '/retry-all',
+  asyncHandler(async (req, res) => {
+    const requeued = await rewardService.retryAllFailedRewards(req.userRole);
+    ok(res, { requeued });
+  }),
+);

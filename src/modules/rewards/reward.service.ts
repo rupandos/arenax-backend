@@ -141,6 +141,43 @@ export async function getNftStatus(rewardId: string, userId?: string): Promise<N
   return { rewardId, status: 'minted', asset };
 }
 
+export async function retryAllFailedRewards(actorRole: string, limit = 100): Promise<number> {
+  if (actorRole !== 'ADMIN') {
+    throw new ForbiddenError('ADMIN_ONLY', 'Only admins can trigger bulk retries');
+  }
+
+  const failed = await prisma.reward.findMany({
+    where: { status: 'FAILED' },
+    orderBy: { updatedAt: 'asc' },
+    take: limit,
+  });
+
+  let requeued = 0;
+  for (const reward of failed) {
+    await prisma.reward.update({
+      where: { id: reward.id },
+      data: { status: 'PENDING', lastError: null },
+    });
+    await rewardQueue.add(
+      'process-reward',
+      {
+        rewardId: reward.id,
+        userId: reward.userId,
+        type: reward.type,
+        amount: reward.amount,
+        currency: reward.currency,
+      },
+      { jobId: `retry-${reward.id}-${Date.now()}-${requeued}`, attempts: 3, backoff: { type: 'fixed', delay: 5_000 } },
+    );
+    requeued += 1;
+  }
+
+  if (requeued > 0) {
+    logger.info({ requeued }, 'bulk retry triggered for failed rewards');
+  }
+  return requeued;
+}
+
 export async function dispatchPendingRewards(): Promise<number> {
   const pending = await prisma.reward.findMany({
     where: { status: { in: ['PENDING', 'PROCESSING'] } },
