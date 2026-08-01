@@ -1,6 +1,8 @@
 import { TournamentStatus, Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { NotFoundError, ConflictError, ForbiddenError, AppError } from '../../utils/errors';
+import { logger } from '../../lib/logger';
+import { emitToUser } from '../../sockets/emitter';
 
 export interface CreateTournamentInput {
   name: string;
@@ -123,5 +125,116 @@ export async function leaveTournament(tournamentId: string, userId: string) {
     throw new NotFoundError('NOT_REGISTERED', 'You are not registered for this tournament');
   }
   return { success: true };
+}
+
+export async function startTournament(tournamentId: string) {
+  const tournament = await prisma.tournament.findUnique({ where: { id: tournamentId } });
+  if (!tournament) {
+    throw new NotFoundError('TOURNAMENT_NOT_FOUND', 'Tournament does not exist');
+  }
+  if (tournament.status !== 'OPEN') {
+    throw new ConflictError('INVALID_STATE', `Tournament is ${tournament.status}, expected OPEN`);
+  }
+
+  const now = new Date();
+  const updated = await prisma.tournament.update({
+    where: { id: tournamentId },
+    data: { status: 'STARTED', startedAt: now },
+  });
+
+  for (const player of await prisma.tournamentPlayer.findMany({ where: { tournamentId } })) {
+    emitToUser(player.userId, 'tournament:started', {
+      tournamentId,
+      name: tournament.name,
+      startTime: now,
+    });
+    await prisma.notification.create({
+      data: {
+        userId: player.userId,
+        type: 'TOURNAMENT_STARTED',
+        title: 'Tournament started',
+        body: `"${tournament.name}" is now live. Good luck!`,
+        data: { tournamentId },
+      },
+    });
+  }
+
+  logger.info({ tournamentId }, 'tournament started');
+  return updated;
+}
+
+const PRIZE_SHARE = [0.5, 0.3, 0.15, 0.05];
+
+export async function completeTournament(tournamentId: string) {
+  const tournament = await prisma.tournament.findUnique({
+    where: { id: tournamentId },
+    include: { players: { orderBy: { score: 'desc' } } },
+  });
+  if (!tournament) {
+    throw new NotFoundError('TOURNAMENT_NOT_FOUND', 'Tournament does not exist');
+  }
+  if (tournament.status !== 'STARTED') {
+    throw new ConflictError('INVALID_STATE', `Tournament is ${tournament.status}, expected STARTED`);
+  }
+
+  const rankedPlayers = tournament.players.map((player, index) => ({
+    ...player,
+    rank: index + 1,
+  }));
+
+  const winners = rankedPlayers.filter((player, index) => index < PRIZE_SHARE.length && player.score > 0);
+
+  const completed = await prisma.$transaction(async (tx) => {
+    for (const player of rankedPlayers) {
+      await tx.tournamentPlayer.update({
+        where: { id: player.id },
+        data: { rank: player.rank },
+      });
+    }
+
+    const champion = winners[0];
+    const updated = await tx.tournament.update({
+      where: { id: tournamentId },
+      data: {
+        status: 'COMPLETED',
+        completedAt: new Date(),
+        ...(champion ? { winnerId: champion.userId } : {}),
+      },
+    });
+
+    for (const winner of winners) {
+      await tx.reward.create({
+        data: {
+          userId: winner.userId,
+          tournamentId,
+          type: 'TOURNAMENT_PRIZE',
+          amount: Math.round((tournament.prizePool * PRIZE_SHARE[winner.rank! - 1]) / 100),
+          currency: 'GEM',
+        },
+      });
+    }
+
+    return updated;
+  });
+
+  for (const player of rankedPlayers) {
+    emitToUser(player.userId, 'tournament:ended', {
+      tournamentId,
+      rank: player.rank,
+      winnerId: completed.winnerId,
+    });
+    await prisma.notification.create({
+      data: {
+        userId: player.userId,
+        type: 'TOURNAMENT_ENDED',
+        title: 'Tournament finished',
+        body: `"${tournament.name}" has concluded. You finished #${player.rank}.`,
+        data: { tournamentId, rank: player.rank, winnerId: completed.winnerId },
+      },
+    });
+  }
+
+  logger.info({ tournamentId, winners: winners.length }, 'tournament completed');
+  return completed;
 }
 
