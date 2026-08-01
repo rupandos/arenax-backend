@@ -6,6 +6,8 @@ import { config } from './config/env';
 import { logger } from './lib/logger';
 import { toHttpError } from './utils/errors';
 import { healthRouter } from './modules/health/health.routes';
+import { authRouter } from './modules/auth/auth.routes';
+import { userRouter } from './modules/users/user.routes';
 import { attachRequestId } from './middlewares/requestId';
 
 export function createApp(): Express {
@@ -32,6 +34,8 @@ export function createApp(): Express {
   });
 
   app.use('/health', healthRouter);
+  app.use('/api/auth', authRouter);
+  app.use('/api/users', userRouter);
 
   app.use((_req: Request, res: Response) => {
     res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Route not found' } });
