@@ -21,6 +21,12 @@ function leaderboardKey(periodKey: string): string {
   return `leaderboard:${periodKey}`;
 }
 
+function topCacheKey(periodKey: string, n: number): string {
+  return `leaderboard:cache:${periodKey}:top${n}`;
+}
+
+const TOP_CACHE_TTL_SECONDS = 60;
+
 export interface LeaderboardEntry {
   userId: string;
   username: string;
@@ -34,7 +40,15 @@ export async function addPoints(userId: string, points: number, period: Leaderbo
 }
 
 export async function getTop(n: number, period: LeaderboardPeriod = 'daily'): Promise<LeaderboardEntry[]> {
-  const key = leaderboardKey(currentPeriodKey(period));
+  const periodKey = currentPeriodKey(period);
+  const cacheKey = topCacheKey(periodKey, n);
+
+  const cached = await redis.get(cacheKey);
+  if (cached) {
+    return JSON.parse(cached) as LeaderboardEntry[];
+  }
+
+  const key = leaderboardKey(periodKey);
   const entries = await redis.zrevrange(key, 0, n - 1, 'WITHSCORES');
   const players = new Set(entries.filter((_, index) => index % 2 === 0));
 
@@ -55,6 +69,8 @@ export async function getTop(n: number, period: LeaderboardPeriod = 'daily'): Pr
       rank: index / 2 + 1,
     });
   }
+
+  await redis.set(cacheKey, JSON.stringify(result), 'EX', TOP_CACHE_TTL_SECONDS);
   return result;
 }
 
