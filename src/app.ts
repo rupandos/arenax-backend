@@ -2,6 +2,7 @@ import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import { pinoHttp } from 'pino-http';
+import swaggerUi from 'swagger-ui-express';
 import { config } from './config/env';
 import { logger } from './lib/logger';
 import { toHttpError } from './utils/errors';
@@ -14,6 +15,7 @@ import { rewardRouter } from './modules/rewards/reward.routes';
 import { leaderboardRouter } from './modules/leaderboard/leaderboard.routes';
 import { marketplaceRouter } from './modules/marketplace/marketplace.routes';
 import { notificationRouter } from './modules/notifications/notification.routes';
+import { openapiSpec } from './docs/openapi';
 import { attachRequestId } from './middlewares/requestId';
 
 export function createApp(): Express {
@@ -36,8 +38,10 @@ export function createApp(): Express {
   );
 
   app.get('/', (_req, res) => {
-    res.json({ name: 'ArenaX Backend', version: '0.1.0' });
+    res.json({ name: 'ArenaX Backend', version: '0.1.0', docs: '/api-docs' });
   });
+
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(openapiSpec));
 
   app.use('/health', healthRouter);
   app.use('/api/auth', authRouter);
