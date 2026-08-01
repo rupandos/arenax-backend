@@ -1,8 +1,11 @@
 import { TournamentStatus, Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { cacheDeletePattern, cacheGet, cacheSet } from '../../lib/cache';
 import { NotFoundError, ConflictError, ForbiddenError, AppError } from '../../utils/errors';
 import { logger } from '../../lib/logger';
 import { emitToUser } from '../../sockets/emitter';
+
+const TOURNAMENT_CACHE_TTL_SECONDS = 15;
 
 export interface CreateTournamentInput {
   name: string;
@@ -34,7 +37,10 @@ export async function updateTournament(
     throw new ConflictError('TOURNAMENT_LOCKED', 'Tournament can no longer be edited');
   }
 
-  return prisma.tournament.update({ where: { id: tournamentId }, data: input });
+  return prisma.tournament.update({ where: { id: tournamentId }, data: input }).then(async (updated) => {
+    await invalidateTournamentCache(tournamentId);
+    return updated;
+  });
 }
 
 export async function listTournaments(filters: { status?: string; page: number; pageSize: number }) {
@@ -57,6 +63,12 @@ export async function listTournaments(filters: { status?: string; page: number; 
 }
 
 export async function getTournament(tournamentId: string) {
+  const cacheKey = `tournament:${tournamentId}`;
+  const cached = await cacheGet(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const tournament = await prisma.tournament.findUnique({
     where: { id: tournamentId },
     include: {
@@ -70,7 +82,13 @@ export async function getTournament(tournamentId: string) {
   if (!tournament) {
     throw new NotFoundError('TOURNAMENT_NOT_FOUND', 'Tournament does not exist');
   }
+
+  await cacheSet(cacheKey, tournament, { ttlSeconds: TOURNAMENT_CACHE_TTL_SECONDS });
   return tournament;
+}
+
+async function invalidateTournamentCache(tournamentId: string): Promise<void> {
+  await cacheDeletePattern(`tournament:${tournamentId}`);
 }
 
 export async function cancelTournament(tournamentId: string, actorRole: string) {
@@ -161,6 +179,7 @@ export async function startTournament(tournamentId: string) {
   }
 
   logger.info({ tournamentId }, 'tournament started');
+  await invalidateTournamentCache(tournamentId);
   return updated;
 }
 
@@ -250,6 +269,7 @@ export async function completeTournament(tournamentId: string) {
   }
 
   logger.info({ tournamentId, winners: winners.length }, 'tournament completed');
+  await invalidateTournamentCache(tournamentId);
   return completed;
 }
 

@@ -1,8 +1,15 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { cacheDeletePattern, cacheGet, cacheSet } from '../../lib/cache';
 import { NotFoundError, ConflictError, ForbiddenError, AppError } from '../../utils/errors';
 import { logger } from '../../lib/logger';
 import { emitToUser } from '../../sockets/emitter';
+
+const LISTINGS_CACHE_TTL_SECONDS = 30;
+
+function listingsCacheKey(status: string | undefined, page: number, pageSize: number): string {
+  return `marketplace:listings:${status ?? 'ALL'}:${page}:${pageSize}`;
+}
 
 export async function listAsset(userId: string, assetId: string, price: number): Promise<void> {
   if (price <= 0 || price > 1_000_000_000) {
@@ -28,10 +35,17 @@ export async function listAsset(userId: string, assetId: string, price: number):
     create: { assetId, sellerId: userId, price, status: 'ACTIVE' },
   });
 
+  await cacheDeletePattern('marketplace:listings:*');
   logger.info({ assetId, userId, price }, 'asset listed');
 }
 
 export async function getListings(filters: { status?: string; page: number; pageSize: number }) {
+  const cacheKey = listingsCacheKey(filters.status, filters.page, filters.pageSize);
+  const cached = await cacheGet<{ items: unknown[]; total: number }>(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const where: Prisma.ListingWhereInput = filters.status
     ? { status: filters.status as 'ACTIVE' | 'SOLD' | 'CANCELLED' }
     : {};
@@ -50,7 +64,9 @@ export async function getListings(filters: { status?: string; page: number; page
     prisma.listing.count({ where }),
   ]);
 
-  return { items, total };
+  const result = { items, total };
+  await cacheSet(cacheKey, result, { ttlSeconds: LISTINGS_CACHE_TTL_SECONDS });
+  return result;
 }
 
 export async function cancelListing(userId: string, listingId: string): Promise<void> {
@@ -69,6 +85,7 @@ export async function cancelListing(userId: string, listingId: string): Promise<
     where: { id: listingId },
     data: { status: 'CANCELLED', closedAt: new Date() },
   });
+  await cacheDeletePattern('marketplace:listings:*');
 }
 
 export function priceInCurrency(listing: { price: number; currency: string }): string {
@@ -160,6 +177,7 @@ export async function purchaseListing(buyerId: string, listingId: string, idempo
   });
 
   logger.info({ transactionId: transaction.id, listingId, buyerId }, 'marketplace purchase completed');
+  await cacheDeletePattern('marketplace:listings:*');
   return { transaction, duplicate: false };
 }
 
