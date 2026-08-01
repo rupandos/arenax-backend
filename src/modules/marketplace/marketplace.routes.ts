@@ -23,6 +23,11 @@ const purchaseSchema = z.object({
   idempotencyKey: z.string().min(8).max(64),
 });
 
+const inventoryQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+});
+
 marketplaceRouter.get(
   '/listings',
   validateQuery(listQuerySchema),
@@ -65,5 +70,16 @@ marketplaceRouter.post(
       req.body.idempotencyKey,
     );
     ok(res, result);
+  }),
+);
+
+marketplaceRouter.get(
+  '/inventory',
+  requireAuth,
+  validateQuery(inventoryQuerySchema),
+  asyncHandler(async (req, res) => {
+    const { page, pageSize } = req.query as { page: number; pageSize: number };
+    const result = await marketplaceService.getUserInventory(req.userId, page, pageSize);
+    okPaged(res, result.items, result.total, page, pageSize);
   }),
 );
