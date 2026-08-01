@@ -1,0 +1,293 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  PLAYER
+  ADMIN
+}
+
+enum TournamentStatus {
+  DRAFT
+  OPEN
+  STARTED
+  COMPLETED
+  CANCELLED
+}
+
+enum MatchStatus {
+  PENDING
+  IN_PROGRESS
+  FINISHED
+}
+
+enum RewardType {
+  TOURNAMENT_PRIZE
+  NFT_REWARD
+  SIGNUP_BONUS
+  REFERRAL_BONUS
+}
+
+enum RewardStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+enum ListingStatus {
+  ACTIVE
+  SOLD
+  CANCELLED
+}
+
+enum TransactionStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
+
+enum NotificationType {
+  TOURNAMENT_STARTED
+  TOURNAMENT_ENDED
+  REWARD_CLAIMED
+  REWARD_FAILED
+  MATCH_FOUND
+  MARKETPLACE_SOLD
+  SYSTEM
+}
+
+model User {
+  id           String   @id @default(cuid())
+  walletAddress String  @unique
+  username     String   @unique
+  avatarUrl    String?
+  role         UserRole @default(PLAYER)
+  xp           Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions     AuthSession[]
+  tournaments  TournamentPlayer[]
+  wonTournaments Tournament[] @relation("TournamentWinner")
+  matchesAsA   Match[] @relation("PlayerA")
+  matchesAsB   Match[] @relation("PlayerB")
+  matchesWon   Match[] @relation("MatchWinner")
+  rewards      Reward[]
+  assets       Asset[]
+  listings     Listing[]
+  purchases    Transaction[] @relation("Buyer")
+  sales        Transaction[] @relation("Seller")
+  notifications Notification[]
+  leaderboardEntries LeaderboardEntry[]
+
+  @@index([walletAddress])
+}
+
+model AuthSession {
+  id               String    @id @default(cuid())
+  userId           String
+  refreshTokenHash String    @unique
+  userAgent        String?
+  ipAddress        String?
+  revokedAt        DateTime?
+  replacedById     String?
+  expiresAt        DateTime
+  createdAt        DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Tournament {
+  id          String           @id @default(cuid())
+  name        String
+  status      TournamentStatus @default(DRAFT)
+  startTime   DateTime
+  endTime     DateTime
+  entryFee    Int              @default(0)
+  prizePool   Int              @default(0)
+  maxPlayers  Int              @default(32)
+  rules       Json?
+  winnerId    String?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  players  TournamentPlayer[]
+  matches  Match[]
+  rewards  Reward[]
+
+  winner User? @relation("TournamentWinner", fields: [winnerId], references: [id])
+
+  @@index([status, startTime])
+  @@index([startTime])
+  @@index([endTime])
+}
+
+model TournamentPlayer {
+  id         String   @id @default(cuid())
+  tournamentId String
+  userId     String
+  score      Int      @default(0)
+  rank       Int?
+  eliminated Boolean  @default(false)
+  joinedAt   DateTime @default(now())
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, userId])
+  @@index([tournamentId, score])
+  @@index([userId])
+}
+
+model Match {
+  id           String      @id @default(cuid())
+  tournamentId String?
+  playerAId    String
+  playerBId    String
+  winnerId     String?
+  status       MatchStatus @default(PENDING)
+  startedAt    DateTime?
+  finishedAt   DateTime?
+
+  tournament Tournament? @relation(fields: [tournamentId], references: [id])
+  playerA    User        @relation("PlayerA", fields: [playerAId], references: [id])
+  playerB    User        @relation("PlayerB", fields: [playerBId], references: [id])
+  winner     User?       @relation("MatchWinner", fields: [winnerId], references: [id])
+
+  @@index([tournamentId, status])
+  @@index([status])
+}
+
+model Reward {
+  id           String       @id @default(cuid())
+  userId       String
+  tournamentId String?
+  type         RewardType
+  amount       Int          @default(0)
+  currency     String       @default("GEM")
+  status       RewardStatus @default(PENDING)
+  attemptCount Int          @default(0)
+  lastError    String?
+  processedAt  DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  user       User        @relation(fields: [userId], references: [id])
+  tournament Tournament? @relation(fields: [tournamentId], references: [id])
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+  @@index([tournamentId])
+}
+
+model Asset {
+  id          String  @id @default(cuid())
+  tokenId     String  @unique
+  ownerId     String
+  name        String
+  rarity      String  @default("COMMON")
+  metadataUrl String?
+  mintedAt    DateTime @default(now())
+
+  owner     User       @relation(fields: [ownerId], references: [id])
+  listings  Listing[]
+  transfers AssetTransfer[]
+  transactions Transaction[]
+
+  @@index([ownerId])
+  @@index([rarity])
+}
+
+model Listing {
+  id         String        @id @default(cuid())
+  assetId    String        @unique
+  sellerId   String
+  price      Int
+  currency   String        @default("GEM")
+  status     ListingStatus @default(ACTIVE)
+  createdAt  DateTime      @default(now())
+  closedAt   DateTime?
+
+  asset  Asset        @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  seller User         @relation(fields: [sellerId], references: [id])
+  sales  Transaction[]
+
+  @@index([status, price])
+  @@index([sellerId, status])
+}
+
+model Transaction {
+  id        String            @id @default(cuid())
+  listingId String
+  buyerId   String
+  sellerId  String
+  assetId   String
+  amount    Int
+  currency  String            @default("GEM")
+  status    TransactionStatus @default(PENDING)
+  txHash    String?
+  createdAt DateTime          @default(now())
+
+  listing Listing @relation(fields: [listingId], references: [id])
+  buyer   User    @relation("Buyer", fields: [buyerId], references: [id])
+  seller  User    @relation("Seller", fields: [sellerId], references: [id])
+  asset   Asset   @relation(fields: [assetId], references: [id])
+
+  @@index([buyerId, createdAt])
+  @@index([sellerId, createdAt])
+  @@index([assetId])
+}
+
+model AssetTransfer {
+  id          String   @id @default(cuid())
+  assetId     String
+  fromUserId  String?
+  toUserId    String
+  reason      String
+  txHash      String?
+  createdAt   DateTime @default(now())
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([assetId, createdAt])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+}
+
+model LeaderboardEntry {
+  id        String   @id @default(cuid())
+  userId    String
+  periodKey String
+  points    Int      @default(0)
+  rank      Int?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([periodKey, userId])
+  @@index([periodKey, rank])
+}
