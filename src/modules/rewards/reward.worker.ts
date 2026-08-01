@@ -46,20 +46,21 @@ let worker: Worker<RewardJobData> | null = null;
 async function processReward(job: RewardJobData): Promise<void> {
   const { rewardId } = job;
 
-  const reward = await prisma.reward.findUnique({ where: { id: rewardId } });
-  if (!reward) {
-    logger.warn({ rewardId }, 'reward not found, skipping');
-    return;
-  }
-  if (reward.status !== 'PENDING') {
-    logger.debug({ rewardId, status: reward.status }, 'reward already processed, skipping');
+  /**
+   * Atomically claim the reward for processing. Only one worker can transition
+   * the row from PENDING to PROCESSING; a second concurrent job for the same
+   * reward is dropped instead of double-processing.
+   */
+  const claimed = await prisma.reward.updateMany({
+    where: { id: rewardId, status: 'PENDING' },
+    data: { status: 'PROCESSING', attemptCount: { increment: 1 } },
+  });
+  if (claimed.count === 0) {
+    logger.debug({ rewardId }, 'reward not claimable (already processed or retried elsewhere), skipping');
     return;
   }
 
-  await prisma.reward.update({
-    where: { id: rewardId },
-    data: { status: 'PROCESSING', attemptCount: { increment: 1 } },
-  });
+  const reward = await prisma.reward.findUniqueOrThrow({ where: { id: rewardId } });
 
   try {
     await claimReward(rewardId);
